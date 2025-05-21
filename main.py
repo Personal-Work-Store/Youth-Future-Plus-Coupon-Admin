@@ -9,3 +9,9 @@ async def root():
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
+
+from fastapi import UploadFile, File
+
+@app.post("/upload/")
+async def upload_file(file: UploadFile = File(...)):
+    return {"filename" : file.filename}
