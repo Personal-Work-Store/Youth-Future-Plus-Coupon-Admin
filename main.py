@@ -35,11 +35,35 @@ async def upload_check_file(file: UploadFile = File(...)):
     else:
         return {"error": "지원되지 않는 파일 형식입니다. CSV 또는 Excel 파일만 업로드해주세요."}
     
+    # 데이터프레임 검증
+    if df.empty:
+        return {"error": "파일에 데이터가 없습니다."}
+    
+    if len(df.columns) == 0:
+        return {"error": "파일에 컬럼이 없습니다."}
+    
     # 헤더 확인
     first_column_check = df.columns[0] == 'customer_id'
-        
+    
+
+    # 최소 컬럼 개수 확인
+    if len(df.columns) != 1:
+        return {
+            "error": "컬럼은 하나만 필요합니다.",
+            "len(df.columns)" : len(df.columns)
+            }
+    
+    # customer_id 컬럼 확인
+    if not first_column_check:
+        return {
+            "error": "첫 번째 컬럼이 'customer_id'가 아닙니다.",
+            "actual_first_column": df.columns[0]
+        }
     
     return {
         "filename": file.filename,
-        "first_column_is_customer_id": first_column_check
+        "first_column_is_customer_id": first_column_check,
+        "total_columns": len(df.columns),
+        "total_rows": len(df),
+        "columns": list(df.columns)
     }
