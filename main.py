@@ -18,6 +18,9 @@ async def upload_file(file: UploadFile = File(...)):
 
 import pandas as pd
 from io import StringIO, BytesIO
+import os
+from datetime import datetime
+import shutil
 
 @app.post("/upload-file/")
 async def upload_check_file(file: UploadFile = File(...)):
@@ -64,6 +67,22 @@ async def upload_check_file(file: UploadFile = File(...)):
     if num_rows == 0:
         return {"error": "회원 목록이 비어있습니다."}
     
+    # 파일 저장 전에 파일 포인터를 처음으로 되돌리기
+    await file.seek(0)
+
+    # 파일 저장
+    upload_dir = "uploads"
+    os.makedirs(upload_dir, exist_ok=True)
+    
+    # 안전한 파일명 생성
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_filename = f"{timestamp}_{file.filename}"
+    file_path = os.path.join(upload_dir, safe_filename)
+    
+    # 파일 저장
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
     return {
         "filename": file.filename,
         "first_column_is_customer_id": first_column_check,
