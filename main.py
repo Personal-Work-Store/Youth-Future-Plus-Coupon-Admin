@@ -1,92 +1,77 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.responses import FileResponse
+import pandas as pd
+from io import StringIO, BytesIO
+import os, shutil, uuid
+from datetime import datetime
+from typing import Dict
 
 app = FastAPI()
 
-@app.get("/")
-async def root():
-    return {"message": "쿠폰 시스템 ADMIN API에 오신 것을 환영합니다."}
-
-@app.get("/health")
-async def health_check():
-    return {"status": "healthy"}
-
-from fastapi import UploadFile, File
-
-@app.post("/upload/")
-async def upload_file(file: UploadFile = File(...)):
-    return {"filename" : file.filename}
-
-import pandas as pd
-from io import StringIO, BytesIO
-import os
-from datetime import datetime
-import shutil
+# 업로드된 파일 메타데이터 저장소
+uploaded_files: Dict[str, dict] = {}
 
 @app.post("/upload-file/")
-async def upload_check_file(file: UploadFile = File(...)):
+async def upload_file(file: UploadFile = File(...)):
+    # 1. 파일 파싱 & 검증 (기존 로직)
     contents = await file.read()
-    file_extension = file.filename.split(".")[-1].lower()
-    
+    ext = file.filename.split(".")[-1].lower()
+
     try:
-        if file_extension == "csv":
-            s = StringIO(contents.decode('utf-8'))
-            df = pd.read_csv(s)
-        elif file_extension in ["xlsx", "xls"]:
-            excel_data = BytesIO(contents)
-            df = pd.read_excel(excel_data)
+        if ext == "csv":
+            df = pd.read_csv(StringIO(contents.decode("utf-8")))
+        elif ext in ("xlsx", "xls"):
+            df = pd.read_excel(BytesIO(contents))
         else:
-            return {"error": "지원되지 않는 파일 형식입니다. CSV 또는 Excel 파일만 업로드해주세요."}
+            raise HTTPException(400, "지원되지 않는 파일 형식입니다.")
     except pd.errors.EmptyDataError:
-        return {"error" : "파일에 읽을 수 있는 데이터가 없습니다."}
-    
-    # 1. 완전히 빈 파일 체크
+        raise HTTPException(400, "파일에 읽을 수 있는 데이터가 없습니다.")
+
     if df.empty:
-        return {"error": "파일에 데이터가 없습니다."}
-    
-    # numpy 타입을 확실히 Python 타입으로 변환
-    num_columns = int(len(df.columns)) if hasattr(len(df.columns), 'item') else len(df.columns)
-    num_rows = int(len(df)) if hasattr(len(df), 'item') else len(df)
+        raise HTTPException(400, "파일에 데이터가 없습니다.")
+    if len(df.columns) != 1 or df.columns[0] != "customer_id":
+        raise HTTPException(400, "헤더가 customer_id 하나만 있어야 합니다.")
+    if len(df) == 0:
+        raise HTTPException(400, "회원 목록이 비어있습니다.")
 
-    # 2. 컬럼 개수 체크 (먼저 체크)
-    if num_columns != 1:
-        return {
-            "error": "컬럼은 하나만 필요합니다.",
-            "len(df.columns)": num_columns
-        }
-    
-     # 컬럼명도 확실히 Python str로 변환
-    first_column = str(df.columns[0])
-    first_column_check = first_column == 'customer_id'
-    
-    if not first_column_check:
-        return {
-            "error": "첫 번째 컬럼이 'customer_id'가 아닙니다.",
-            "actual_first_column": first_column
-        }
-    
-    if num_rows == 0:
-        return {"error": "회원 목록이 비어있습니다."}
-    
-    # 파일 저장 전에 파일 포인터를 처음으로 되돌리기
-    await file.seek(0)
-
-    # 파일 저장
+    # 2. 저장
+    file_id = str(uuid.uuid4())
     upload_dir = "uploads"
     os.makedirs(upload_dir, exist_ok=True)
-    
-    # 안전한 파일명 생성
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_filename = f"{timestamp}_{file.filename}"
-    file_path = os.path.join(upload_dir, safe_filename)
+    safe_name = f"{file_id}_{timestamp}_{file.filename}"
+    path = os.path.join(upload_dir, safe_name)
     
-    # 파일 저장
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    # contents를 직접 기록(파일 포인터 리셋 불필요)
+    with open(path, "wb") as buf:
+        buf.write(contents)
 
-    return {
-        "filename": file.filename,
-        "first_column_is_customer_id": first_column_check,
-        "total_columns": num_columns,
-        "total_rows": num_rows,
-        "columns": [str(col) for col in df.columns.tolist()]  # .tolist() 추가
+    # 3. 메타데이터 저장
+    uploaded_files[file_id] = {
+        "path": path,
+        "original_name": file.filename,
+        "uploaded_at": datetime.now().isoformat()
     }
+
+    # 4. 다운로드 URL 포함 응답
+    return {
+        "file_id": file_id,
+        "filename": file.filename,
+        "download_url": f"/download/{file_id}"
+    }
+
+@app.get("/download/{file_id}")
+async def download_file(file_id: str):
+    # file_id 만으로 접근 허용
+    info = uploaded_files.get(file_id)
+    if not info:
+        raise HTTPException(404, "파일을 찾을 수 없습니다.")
+    if not os.path.exists(info["path"]):
+        raise HTTPException(404, "서버에 파일이 없습니다.")
+    
+    # 파일 그대로 내려주기
+    return FileResponse(
+        path=info["path"],
+        filename=info["original_name"],
+        media_type="application/octet-stream"
+    )
