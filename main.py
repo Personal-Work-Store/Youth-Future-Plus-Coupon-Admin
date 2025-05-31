@@ -5,6 +5,7 @@ from io import StringIO, BytesIO
 import os, shutil, uuid
 from datetime import datetime
 from typing import Dict
+import re
 
 app = FastAPI()
 
@@ -23,15 +24,12 @@ async def upload_file(file: UploadFile = File(...)):
     file_size = file.file.tell()
     file.file.seek(0)       # 포인터 초기화
 
+    # 파일 너무 크면 반려
     if file_size > MAX_FILE_SIZE:
         raise HTTPException(
             status_code=413,
             detail=f"파일 크기 제한 초과 ({MAX_FILE_SIZE//1024//1024}MB)"
         )
-    
-    # 1. 파일 파싱 & 검증 (기존 로직)
-    # contents = await file.read()
-    # ext = file.filename.split(".")[-1].lower()
 
     # 청크 단위로 파일 읽기
     contents = b''
@@ -62,13 +60,37 @@ async def upload_file(file: UploadFile = File(...)):
     if len(df) == 0:
         raise HTTPException(400, "회원 목록이 비어있습니다.")
 
-    # 2. 저장
+    # 저장
     file_id = str(uuid.uuid4())
-    upload_dir = "uploads"
+    upload_dir = os.path.abspath("uploads")
     os.makedirs(upload_dir, exist_ok=True)
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_name = f"{file_id}_{timestamp}_{file.filename}"
+
+    MAX_FILENAME_LENGTH = 255
+    # 기본 경로 제거
+    sanitized_name = os.path.basename(file.filename)
+    # 특수문자 변환
+    sanitized_name = re.sub(r'[<>:"|?*]', '_', sanitized_name)
+    # 제어문제 제거
+    sanitized_name = re.sub(r'[\x00-\x1f]', '', sanitized_name)
+    # 윈도우 예약어 처리
+    windows_reserved = (['CON', 'PRN', 'AUX', 'NULL'] + 
+                        [f'COM{i}' for i in range(1, 10)] + 
+                        [f'LPT{i}' for i in range(1, 10)])
+    if sanitized_name.upper().split('.')[0] in windows_reserved:
+        sanitized_name = f"file_{sanitized_name}"
+
+    if len(sanitized_name) > MAX_FILENAME_LENGTH:
+        raise HTTPException(400, f"파일명이 너무 깁니다 (최대 {MAX_FILENAME_LENGTH}자)")
+    
+    safe_name = f"{file_id}_{timestamp}_{sanitized_name }"
+    
     path = os.path.join(upload_dir, safe_name)
+
+    final_path = os.path.abspath(path)
+    if not final_path.startswith(upload_dir):
+        raise HTTPException(400, "Inbalid file path detected ")
     
     # contents를 직접 기록(파일 포인터 리셋 불필요)
     with open(path, "wb") as buf:
@@ -77,14 +99,15 @@ async def upload_file(file: UploadFile = File(...)):
     # 3. 메타데이터 저장
     uploaded_files[file_id] = {
         "path": path,
-        "original_name": file.filename,
+        "original_name": sanitized_name,
         "uploaded_at": datetime.now().isoformat()
     }
 
     # 4. 다운로드 URL 포함 응답
     return {
         "file_id": file_id,
-        "filename": file.filename,
+        "original_filename": file.filename,
+        "safe_filename" : sanitized_name,
         "download_url": f"/download/{file_id}"
     }
 
