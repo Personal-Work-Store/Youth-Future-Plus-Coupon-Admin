@@ -8,15 +8,43 @@ from typing import Dict
 
 app = FastAPI()
 
+# 파일 크기 제한 상수 (10MB)
+MAX_FILE_SIZE = 10 * 1024 *1024
+CHUNK_SIZE = 64* 1024
+
 # 업로드된 파일 메타데이터 저장소
 uploaded_files: Dict[str, dict] = {}
 
 @app.post("/upload-file/")
 async def upload_file(file: UploadFile = File(...)):
-    # 1. 파일 파싱 & 검증 (기존 로직)
-    contents = await file.read()
-    ext = file.filename.split(".")[-1].lower()
+    # 파일 크기 검증
+    file.size = 0
+    file.file.seek(0, 2)    # 파일 끝으로 이동
+    file_size = file.file.tell()
+    file.file.seek(0)       # 포인터 초기화
 
+    if file_size > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"파일 크기 제한 초과 ({MAX_FILE_SIZE//1024//1024}MB)"
+        )
+    
+    # 1. 파일 파싱 & 검증 (기존 로직)
+    # contents = await file.read()
+    # ext = file.filename.split(".")[-1].lower()
+
+    # 청크 단위로 파일 읽기
+    contents = b''
+    while True:
+        chunk = await file.read(CHUNK_SIZE)
+        if not chunk:
+            break
+        contents += chunk
+        if len(contents) > MAX_FILE_SIZE:
+            raise HTTPException(413, "파일 크기 초과")
+    
+    # 파일 확장자 검증
+    ext = file.filename.split(".")[-1].lower()
     try:
         if ext == "csv":
             df = pd.read_csv(StringIO(contents.decode("utf-8")))
