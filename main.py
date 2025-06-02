@@ -9,29 +9,29 @@ import re
 
 app = FastAPI()
 
-# 파일 크기 제한 상수 (10MB)
+# 파일 크기 제한 상수 (10MB) Dos 공격 방지
 MAX_FILE_SIZE = 10 * 1024 *1024
+# 청크 크게 제한 상수 (64KB) 메모리 효율성 확보 메모리 오버플로우 방지 및 시스템 안정성 확보
 CHUNK_SIZE = 64* 1024
-
 # 업로드된 파일 메타데이터 저장소
 uploaded_files: Dict[str, dict] = {}
 
-@app.post("/upload-file/")
-async def upload_file(file: UploadFile = File(...)):
-    # 파일 크기 검증
-    file.size = 0
-    file.file.seek(0, 2)    # 파일 끝으로 이동
-    file_size = file.file.tell()
-    file.file.seek(0)       # 포인터 초기화
+# 파일 크기 검증
+def validate_file_size(file: UploadFile) -> int:
+    file_size = 0                   # 변수 초기화
+    file.file.seek(0, 2)            # 포인터 끝으로 이동
+    file_size = file.file.tell()    # 실제 파일 사이즈 대입
+    file.file.seek(0)               # 포인터 초기화
 
-    # 파일 너무 크면 반려
     if file_size > MAX_FILE_SIZE:
         raise HTTPException(
-            status_code=413,
-            detail=f"파일 크기 제한 초과 ({MAX_FILE_SIZE//1024//1024}MB)"
+            status_code = 413,
+            detail = f"파일 크기 제한 초과 ({MAX_FILE_SIZE//1024//1024}MB)"
         )
+    return file_size
 
-    # 청크 단위로 파일 읽기
+# 청크 단위로 파일 읽기
+async def read_file_in_chunks(file: UploadFile) -> bytes:
     contents = b''
     while True:
         chunk = await file.read(CHUNK_SIZE)
@@ -40,9 +40,12 @@ async def upload_file(file: UploadFile = File(...)):
         contents += chunk
         if len(contents) > MAX_FILE_SIZE:
             raise HTTPException(413, "파일 크기 초과")
-    
-    # 파일 확장자 검증
-    ext = file.filename.split(".")[-1].lower()
+    return contents
+
+# 파일 형식 및 데이터 검증
+def validate_file_format_and_data(filename:str, contents: bytes) -> pd.DataFrame:
+    # 파일 명에서 확장자 추출
+    ext = filename.split(".")[-1].lower()
     try:
         if ext == "csv":
             df = pd.read_csv(StringIO(contents.decode("utf-8")))
@@ -52,49 +55,72 @@ async def upload_file(file: UploadFile = File(...)):
             raise HTTPException(400, "지원되지 않는 파일 형식입니다.")
     except pd.errors.EmptyDataError:
         raise HTTPException(400, "파일에 읽을 수 있는 데이터가 없습니다.")
-
+    
     if df.empty:
         raise HTTPException(400, "파일에 데이터가 없습니다.")
     if len(df.columns) != 1 or df.columns[0] != "customer_id":
         raise HTTPException(400, "헤더가 customer_id 하나만 있어야 합니다.")
     if len(df) == 0:
         raise HTTPException(400, "회원 목록이 비어있습니다.")
+    
+    return df
 
-    # 저장
-    file_id = str(uuid.uuid4())
+# 파일명 정제
+def sanitize_filename(filename: str) -> str:
+    # 기본 경로 제거
+    sanitize_name = os.path.basename(filename)
+    # 특수문자 반환
+    sanitize_name = re.sub(r'[<>:"|?*]', '_', sanitize_name)
+    # 제어문자 제거
+    sanitize_name = re.sub(r'[\x00-\x1f]', '', sanitize_name)
+    # 윈도우 예약어 처리
+    window_reserved = (['CON', 'PRN', 'AUX', 'NULL'] + 
+                       [f'CON{i}' for i in range(1, 10)] + 
+                       [f'LPT{i}' for i in range(1, 10)])
+    if sanitize_name.upper().split('.')[0] in window_reserved:
+        sanitize_name = f"file_{sanitize_name}"
+
+    if len(sanitize_name) > MAX_FILE_SIZE:
+        raise HTTPException(400, f"파일명이 너무 깁니다 (최대 255자)")    
+
+    return sanitize_name
+
+# 파일을 디스크에 저장
+def save_file_to_disk(file_id: str, sanitized_name: str, contents: bytes) -> str:
     upload_dir = os.path.abspath("uploads")
     os.makedirs(upload_dir, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-    MAX_FILENAME_LENGTH = 255
-    # 기본 경로 제거
-    sanitized_name = os.path.basename(file.filename)
-    # 특수문자 변환
-    sanitized_name = re.sub(r'[<>:"|?*]', '_', sanitized_name)
-    # 제어문제 제거
-    sanitized_name = re.sub(r'[\x00-\x1f]', '', sanitized_name)
-    # 윈도우 예약어 처리
-    windows_reserved = (['CON', 'PRN', 'AUX', 'NULL'] + 
-                        [f'COM{i}' for i in range(1, 10)] + 
-                        [f'LPT{i}' for i in range(1, 10)])
-    if sanitized_name.upper().split('.')[0] in windows_reserved:
-        sanitized_name = f"file_{sanitized_name}"
-
-    if len(sanitized_name) > MAX_FILENAME_LENGTH:
-        raise HTTPException(400, f"파일명이 너무 깁니다 (최대 {MAX_FILENAME_LENGTH}자)")
-    
-    safe_name = f"{file_id}_{timestamp}_{sanitized_name }"
-    
+    safe_name = f"{file_id}_{timestamp}_{sanitized_name}"
     path = os.path.join(upload_dir, safe_name)
 
     final_path = os.path.abspath(path)
     if not final_path.startswith(upload_dir):
-        raise HTTPException(400, "Inbalid file path detected ")
+        raise HTTPException(400, "허용되지 않는 파일 경로입니다.")
     
-    # contents를 직접 기록(파일 포인터 리셋 불필요)
     with open(path, "wb") as buf:
         buf.write(contents)
+
+    return path
+
+
+@app.post("/upload-file/")
+async def upload_file(file: UploadFile = File(...)):
+    # 파일 크기 검증
+    file_size = validate_file_size(file)
+    
+    # 청크 단위로 파일 읽기
+    contents = read_file_in_chunks(file) 
+
+    # 파일 형식 및 데이터 검증
+    df = validate_file_format_and_data(file.filename, contents)
+    
+    # 파일명 정제 
+    sanitized_name = sanitize_filename(file.filename)
+
+    # 파일 저장
+    file_id = str(uuid.uuid4())
+    path = save_file_to_disk(file_id, sanitized_name, contents)
 
     # 3. 메타데이터 저장
     uploaded_files[file_id] = {
