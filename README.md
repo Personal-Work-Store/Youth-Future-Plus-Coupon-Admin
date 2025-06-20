@@ -25,3 +25,12 @@ conda env list
 
 ## 콘다 환경 삭제
 > conda remove --name "환경 이름" --all
+
+## Local Stack AWS Configure
+```
+(Coupon_Admin) F:\Repository\Youth-Future-Plus-Coupon-Admin>aws configure      
+AWS Access Key ID [None]: test
+AWS Secret Access Key [None]: test 
+Default region name [None]: us-east-1
+Default output format [None]: json
+```
