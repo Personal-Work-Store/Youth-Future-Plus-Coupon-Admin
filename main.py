@@ -152,3 +152,50 @@ async def download_file(file_id: str):
         filename=info["original_name"],
         media_type="application/octet-stream"
     )
+
+# 프론트에서 S3의 파일을 업로드 하기 위해 메타데이터와 함께 Presigned URL 요청
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+import boto3
+
+app = FastAPI()
+
+# LocalStack S3 클라이언트 설정
+s3_client = boto3.client(
+    's3',
+    aws_access_key_id='test',
+    aws_secret_access_key='test',
+    region_name='us-east-1',
+    endpoint_url='http://localhost:4566'
+)
+
+class FileMetadata(BaseModel):
+    filename: str
+    size: int
+    content_type: str
+    uploaded_at: str
+
+@app.post('/presigned-url/')
+async def get_presigned_url(metadata: FileMetadata):
+    bucket_name = 'sample-bucket'  # 실제 버킷명으로 변경
+    key = f"uploads/{metadata.filename}"
+    try:
+        # 업로드용 presigned URL (PUT)
+        presigned_put_url = s3_client.generate_presigned_url(
+            ClientMethod='put_object',
+            Params={'Bucket': bucket_name, 'Key': key, 'ContentType': metadata.content_type},
+            ExpiresIn=3600
+        )
+        # 다운로드용 presigned URL (GET)
+        presigned_get_url = s3_client.generate_presigned_url(
+            ClientMethod='get_object',
+            Params={'Bucket': bucket_name, 'Key': key},
+            ExpiresIn=3600
+        )
+        return {
+            'upload_url': presigned_put_url,
+            'download_url': presigned_get_url,
+            's3_key': key
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
