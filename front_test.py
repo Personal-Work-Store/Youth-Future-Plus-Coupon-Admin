@@ -36,3 +36,27 @@ presigned_url_response = request_presigned_url(metadata)
 
 print("Extracted Metadata:", metadata)
 print("Presigned URL Response:", presigned_url_response)
+
+
+url = presigned_url_response["upload_url"]
+
+with open(file_path, "rb") as f:
+    response = requests.put(url, data=f)
+
+print("S3 업로드 전체 응답 내용:", response)
+print("S3 업로드 응답 코드:", response.status_code)
+print("응답 내용:", response.text)
+
+import requests
+
+if(response.status_code == 200):
+    metadata = {
+        "filename": "test1_normal.csv",
+        "s3_key": "uploads/test1_normal.csv",
+        "size": 34,
+        "content_type": "text/csv",
+        "uploaded_at": "2025-07-01T17:39:29.788282"
+    }
+    api_url = "http://localhost:8000/save-metadata/"
+    response = requests.post(api_url, json=metadata)
+    print(response.json())

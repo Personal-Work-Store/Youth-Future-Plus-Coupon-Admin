@@ -121,3 +121,32 @@ awslocal s3 cp s3://sample-bucket/image.jpg ./image_downloaded.jpg
 ```
 download: s3://sample-bucket/image.jpg to .\image_downloaded.jpg
 ```
+
+### DynamoDB 생성하기
+```
+awslocal dynamodb create-table ^
+--table-name FileMetadata ^
+--attribute-definitions AttributeName=file_id,AttributeType=S ^
+--key-schema AttributeName=file_id,KeyType=HASH ^
+--provisioned-throughput ReadCapacityUnits=1,WriteCapacityUnits=1
+```
+```
+awslocal dynamodb create-table:
+```
+> LocalStack 환경에서 DynamoDB 테이블을 생성하는 명령어
+```
+--table-name FileMetadata
+```
+> DynamoDB 테이블의 이름을 FileMetadata로 지정
+```
+--attribute-definitions AttributeName=file_id,AttributeType=s
+```
+> 테이블에 사용할 속성(컬럼)을 정의 fil_id라는 이름의 속성을 문자열(S) 타입으로 지정
+```
+--key-schema AttributeName=file_id, KeyType=HASH
+```
+> 테이블의 기본 키 스키마를 정의 file_id 속성을 해시 키(파티션 키)로 사용하겠다는 의미
+```
+--provisioned-throughput ReadCapacityUnits=1, WriteCapacityUnits=1
+```
+> 프로비저닝된 처리량(초당 읽기/쓰기 용량 단위)을 각각 1로 설정

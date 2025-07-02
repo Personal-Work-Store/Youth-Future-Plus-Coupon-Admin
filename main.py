@@ -199,3 +199,37 @@ async def get_presigned_url(metadata: FileMetadata):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# DynamoDB 리소스 (로컬스택 환경)
+dynamodb = boto3.resource(
+    "dynamodb",
+    endpoint_url="http://localhost:4566",  # LocalStack용
+    region_name="us-east-1",
+    aws_access_key_id="test",
+    aws_secret_access_key="test"
+)
+table = dynamodb.Table("FileMetadata")
+
+class FileMetadata(BaseModel):
+    filename: str
+    s3_key: str
+    size: int
+    content_type: str
+    uploaded_at: str
+
+@app.post("/save-metadata/")
+def save_metadata(metadata: FileMetadata):
+    file_id = str(uuid.uuid4())
+    item = {
+        "file_id": file_id,
+        "filename": metadata.filename,
+        "s3_key": metadata.s3_key,
+        "size": metadata.size,
+        "content_type": metadata.content_type,
+        "uploaded_at": metadata.uploaded_at or datetime.utcnow().isoformat()
+    }
+    try:
+        table.put_item(Item=item)
+        return {"file_id": file_id, "message": "메타데이터 저장 성공"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
