@@ -1,25 +1,25 @@
 import pandas as pd
 
 # 1. 제목행이 customer_id이고 회원번호가 들어있는 파일 (정상 케이스)
-data1 = {'customer_id': [11111, 22222, 33333]}
+data1 = {"customer_id": [11111, 22222, 33333]}
 df1 = pd.DataFrame(data1)
 df1.to_csv("test1_normal.csv", index=False)
 df1.to_excel("test1_normal.xlsx", index=False)
 
 # 2. 제목행이 customer_id이고 회원번호가 없는 파일 (빈 목록)
-data2 = {'customer_id': []}
+data2 = {"customer_id": []}
 df2 = pd.DataFrame(data2)
 df2.to_csv("test2_empty_data.csv", index=False)
 df2.to_excel("test2_empty_data.xlsx", index=False)
 
 # 3. 제목행이 있지만 customer_id가 아니고 회원번호가 들어있는 파일
-data3 = {'user_id': [11111, 22222, 33333]}
+data3 = {"user_id": [11111, 22222, 33333]}
 df3 = pd.DataFrame(data3)
 df3.to_csv("test3_wrong_header.csv", index=False)
 df3.to_excel("test3_wrong_header.xlsx", index=False)
 
 # 4. 제목행이 있지만 customer_id가 아니고 회원번호가 없는 파일
-data4 = {'user_id': []}
+data4 = {"user_id": []}
 df4 = pd.DataFrame(data4)
 df4.to_csv("test4_wrong_header_empty.csv", index=False)
 df4.to_excel("test4_wrong_header_empty.xlsx", index=False)
