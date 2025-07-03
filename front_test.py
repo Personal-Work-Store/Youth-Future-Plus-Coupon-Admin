@@ -64,3 +64,9 @@ if response.status_code == 200:
     api_url = "http://localhost:8000/save-metadata/"
     response = requests.post(api_url, json=metadata)
     print(response.json())
+
+
+file_info = {"bucket": "sample-bucket", "key": "uploads/test1_normal.csv"}
+api_url = "http://localhost:8000/validate-s3-csv/"
+response = requests.post(api_url, json=file_info)
+print(response.json())
